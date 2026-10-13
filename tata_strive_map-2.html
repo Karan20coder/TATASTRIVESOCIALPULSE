@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tata STRIVE Centres Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
+<style>
+  :root{
+    --ink:#16202b; --muted:#6b7683; --line:#e5e8ec; --soft:#f4f6f8;
+    --amber:#f5a524; --blue:#1f5fbf;
+    --shadow:0 1px 2px rgba(10,20,30,.08),0 8px 28px rgba(10,20,30,.14);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font-family:'Figtree',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:var(--ink);font-size:14px}
+  #map{position:absolute;inset:0;background:#cfd8df}
+  button,input,select{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
+  /* side panel */
+  .panel{position:absolute;z-index:1100;top:16px;left:16px;width:320px;max-height:calc(100% - 32px);
+    display:flex;flex-direction:column;background:#fff;border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 16px 12px}
+  .head h1{margin:0;font-size:17px;font-weight:700;letter-spacing:-.01em}
+  .head p{margin:3px 0 0;color:var(--muted);font-size:13px}
+  .iconbtn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12.5px;font-weight:500}
+  .iconbtn:hover{background:var(--soft)}
+  .body{display:flex;flex-direction:column;min-height:0;flex:1}
+  .panel.collapsed .body{display:none}
+  .controls{padding:0 16px 12px;display:grid;gap:8px}
+  .field{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff}
+  .field:hover{border-color:#cdd3da}
+  .check{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;cursor:pointer;user-select:none}
+  .check input{accent-color:var(--blue);margin:0}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 16px;padding:0 16px 12px;color:var(--muted);font-size:12.5px}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:50%;border:1.5px solid var(--ink);flex:none}
+  .dot.known{background:var(--amber)} .dot.none{background:#fff}
+  .list{overflow:auto;border-top:1px solid var(--line);flex:1;min-height:0}
+  .item{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;background:none;padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--soft)}
+  .item:hover,.item:focus-visible{background:var(--soft)}
+  .item .dot{margin-top:4px}
+  .item b{display:block;font-weight:600;font-size:13.5px;line-height:1.3}
+  .item small{color:var(--muted);font-size:12.5px}
+  .empty{padding:20px 16px;color:var(--muted)}
+  details.missing{border-top:1px solid var(--line);padding:10px 16px;font-size:12.5px;color:var(--muted)}
+  details.missing summary{cursor:pointer;font-weight:500}
+  details.missing ul{margin:8px 0 0;padding-left:16px;max-height:120px;overflow:auto}
+  details.missing li{margin:2px 0}
+
+  /* basemap switch */
+  .tools{position:absolute;z-index:1100;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+  .switch{display:flex;background:#fff;border-radius:10px;box-shadow:var(--shadow);padding:3px}
+  .switch button{border:0;background:none;padding:7px 14px;border-radius:7px;cursor:pointer;font-weight:500;color:var(--muted)}
+  .switch button[aria-pressed="true"]{background:var(--ink);color:#fff}
+  .leaflet-overlay-pane canvas{z-index:1}
+  .leaflet-overlay-pane svg{z-index:2}
+  .row{display:flex;gap:8px}
+  .row .iconbtn{flex:1}
+  .status{font-size:12.5px;color:var(--muted);line-height:1.4}
+  .status:empty{display:none}
+  details.states{padding:0 16px 10px;font-size:13px}
+  details.states summary{cursor:pointer;font-weight:500;color:var(--muted);padding:2px 0 6px}
+  #bars{max-height:170px;overflow:auto}
+  .bar{display:grid;grid-template-columns:104px 1fr 22px;gap:8px;align-items:center;width:100%;border:0;background:none;padding:3px 0;cursor:pointer;text-align:left;font-size:12.5px}
+  .bar span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar i{display:block;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--amber) var(--w),var(--soft) var(--w))}
+  .bar em{font-style:normal;color:var(--muted);text-align:right}
+  .bar.on span{font-weight:700}
+  .bar:hover span{text-decoration:underline}
+
+  /* markers, clusters, tooltip, popup */
+  .cl{background:var(--ink);color:#fff;border:2px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+  .leaflet-tooltip.tip{border:0;border-radius:10px;padding:10px 12px;box-shadow:var(--shadow);color:var(--ink);white-space:normal;width:max-content;max-width:260px;font-family:inherit}
+  .leaflet-tooltip.tip:before{display:none}
+  .tip h4{margin:0;font-size:13.5px;font-weight:700;line-height:1.3}
+  .tip .st{color:var(--muted);font-size:12px;margin:1px 0 6px}
+  .tip ul{margin:0;padding-left:15px;font-size:12.5px;line-height:1.45}
+  .tip .na{color:var(--muted);font-style:italic;font-size:12.5px}
+  .leaflet-popup.pop .leaflet-popup-content-wrapper{border-radius:12px;box-shadow:var(--shadow);padding:0}
+  .leaflet-popup.pop .leaflet-popup-content{margin:14px 16px;font-family:inherit;font-size:13px;line-height:1.45;width:260px!important}
+  .pop h3{margin:0 0 2px;font-size:15px;font-weight:700;line-height:1.3;padding-right:14px}
+  .pop .addr{color:var(--muted);margin:0 0 10px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .chip{background:#fff6e5;border:1px solid #f3d9a4;color:#6b4700;border-radius:999px;padding:3px 9px;font-size:12px}
+  .pop .na{color:var(--muted);font-style:italic;margin:0 0 12px}
+  .pop .foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+  .pop a{color:var(--blue);font-weight:600;text-decoration:none}
+  .pop a:hover{text-decoration:underline}
+  .leaflet-control-zoom{border:0!important;box-shadow:var(--shadow)!important;border-radius:10px!important;overflow:hidden}
+  .leaflet-control-attribution{font-size:10px}
+
+  @media (max-width:640px){
+    .panel{top:8px;left:8px;right:8px;width:auto;max-height:58vh}
+    .tools{top:auto;bottom:24px;right:8px;left:8px;align-items:stretch}
+    .switch button{flex:1}
+    .leaflet-bottom.leaflet-right{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="map" aria-label="Map of Tata STRIVE centres"></div>
+
+<aside class="panel" id="panel">
+  <div class="head">
+    <div>
+      <h1>Tata STRIVE centres</h1>
+      <p id="summary"></p>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="iconbtn" id="reset" title="Clear filters and fit all centres">Reset</button>
+      <button class="iconbtn" id="toggle" aria-expanded="true" aria-controls="panelBody" title="Show or hide the panel">Hide</button>
+    </div>
+  </div>
+  <div class="body" id="panelBody">
+    <div class="controls">
+      <input class="field" id="q" type="search" placeholder="Search centre, city or course" aria-label="Search">
+      <select class="field" id="stateSel" aria-label="Filter by state"></select>
+      <select class="field" id="courseSel" aria-label="Filter by course"></select>
+      <label class="check"><input type="checkbox" id="onlyCourses"> Only centres with course details</label>
+      <div class="row">
+        <button class="iconbtn" id="near">Nearest to me</button>
+        <button class="iconbtn" id="export">Export CSV</button>
+      </div>
+      <div class="status" id="status" aria-live="polite"></div>
+    </div>
+    <div class="legend">
+      <span><i class="dot known"></i>Courses listed</span>
+      <span><i class="dot none"></i>Not listed</span>
+      <span>Larger point = more courses</span>
+    </div>
+    <details class="states"><summary>Centres by state</summary><div id="bars"></div></details>
+    <div class="list" id="list"></div>
+    <details class="missing" id="missing"></details>
+  </div>
+</aside>
+
+<div class="tools">
+  <div class="switch" role="group" aria-label="Base map">
+    <button data-base="satellite" aria-pressed="true">Satellite</button>
+    <button data-base="terrain" aria-pressed="false">Terrain</button>
+  </div>
+  <div class="switch" role="group" aria-label="Layers">
+    <button id="tHeat" data-toggle="heat" aria-pressed="true">Heat</button>
+    <button id="tPoints" data-toggle="points" aria-pressed="true">Points</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<script>
+const CENTRES = [{"name": "Tata STRIVE Extension Centre Nashik", "state": "Maharashtra", "location": "Canada Corner, Nashik, Maharashtra, India", "lat": 19.9975, "lng": 73.764, "address": "Tata STRIVE Skill Development Centre, V N Naik College of Pharmacy, BSNL Rd, Canada Corner, Nashik 422002", "courses": ["2 Wheeler ICE + CNG"]}, {"name": "Tata STRIVE Extension Centre Bhilawadi", "state": "Maharashtra", "location": "Bhilawadi, Sangli, Maharashtra, India", "lat": 16.803, "lng": 74.616, "address": "Tata STRIVE Skill Development Centre, Babasaheb Chitale Mahavidyalaya, Bhilawadi 416303", "courses": ["2 Wheeler ICE + CNG"]}, {"name": "Tata STRIVE Extension Centre Bhubaneswar", "state": "Odisha", "location": "Bhubaneswar, Odisha, India", "lat": 20.2961, "lng": 85.8245, "address": "Tata STRIVE Skill Development Centre, C. V. Raman University, Bidyanagar, Mahura, Janla, Bhubaneswar 752054", "courses": []}, {"name": "Tata STRIVE Extension Centre TAJ Jaipur", "state": "Rajasthan", "location": "Jaipur, Rajasthan, India", "lat": 26.9124, "lng": 75.7873, "address": "Ground Floor, Jacob Rd, Near Bharat Petroleum, Civil Lines, Jaipur 302006", "courses": []}, {"name": "Tata STRIVE Mithapur (Devbhumi Dwarka)", "state": "Gujarat", "location": "Mithapur (Devbhumi Dwarka)", "lat": null, "lng": null, "address": "Technical Training Institute (TTI), behind Apprentice Training School (ATS), Mithapur 361345", "courses": []}, {"name": "Tata STRIVE Kevadiya (Narmada)", "state": "Gujarat", "location": "Kevadiya (Narmada)", "lat": null, "lng": null, "address": "IHCL Tata Strive Hospitality Skill Center, Opp. Government ITI, Near Ginger Hotel, Vagadiya Village, Ekta Nagar 393151", "courses": []}, {"name": "Tata STRIVE Extension Centre Kamakhyanagar", "state": "Odisha", "location": "Kamakhyanagar, Odisha, India", "lat": 20.933, "lng": 85.533, "address": "District Skill Development Centre, Jantaribol, Saradhapur, Kamakhyanagar 759018", "courses": []}, {"name": "Tata STRIVE Extension Centre Sanand", "state": "Gujarat", "location": "Sanand, Ahmedabad district, Gujarat, India", "lat": 22.992, "lng": 72.381, "address": "Sanand ITI (GIA) - KSB Technical Institute, Sanand Heights Society, Sanand 382110", "courses": ["Commis Chef", "Front Office Associate", "Food & Beverage (GSA)", "Housekeeping Operations"]}, {"name": "Tata STRIVE Extension Centre Behala Kolkata", "state": "West Bengal", "location": "Behala, Kolkata, West Bengal, India", "lat": 22.4986, "lng": 88.309, "address": "570/11, Diamond Harbour Rd, Arcadia, Behala, Kolkata 700034", "courses": []}, {"name": "Tata STRIVE Extension Centre Bhubaneswar", "state": "Odisha", "location": "Bhubaneswar, Odisha, India", "lat": 20.2961, "lng": 85.8245, "address": "Tata STRIVE, WSC, Kaushal Bhavan, Block B, Sector A, Mancheswar Industrial Estate, Bhubaneswar 751007", "courses": []}, {"name": "Tata STRIVE Extension Centre Dwarka Delhi", "state": "Delhi", "location": "Mahavir Enclave, Dwarka, New Delhi, India", "lat": 28.601, "lng": 77.073, "address": "Rao Nahar Singh Tower, Above Graphdoer Experience Centre, Mahavir Enclave, Dwarka, New Delhi 110045", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Nagavara", "state": "Karnataka", "location": "Nagavara, Bengaluru, Karnataka, India", "lat": 13.045, "lng": 77.623, "address": "No-1/2, Flat-201, BVR Lake Front Building, 1st Main Rd, Kanaka Nagar Outer Ring Rd, Veerannapalya, Nagavara, Bengaluru 560045", "courses": []}, {"name": "Tata STRIVE Extension Centre Radhanagar Chennai", "state": "Tamil Nadu", "location": "Chromepet, Chennai, Tamil Nadu, India", "lat": 12.9516, "lng": 80.1462, "address": "Sona Tower, 1st and 2nd Floor of No. 10 A & B, Dr. Rajendra Prasad Road, Hasthinapuram, Chrompet 600044", "courses": []}, {"name": "Tata STRIVE Extension Centre Lucknow", "state": "Uttar Pradesh", "location": "Lucknow, Uttar Pradesh, India", "lat": 26.8467, "lng": 80.9462, "address": "Shalimar Gateway Mall, Near Alambagh Bus Station (Metro), Sardari Khera, Lucknow 226005", "courses": []}, {"name": "Tata STRIVE Extension Centre Rudrapur", "state": "Uttarakhand", "location": "Rudrapur, Uttarakhand, India", "lat": 28.98, "lng": 79.408, "address": "Tata Strive Rudrapur, Plot No 30,31, Above SBI bank, Industrial Estate, Kiccha Bypass Road, Rudrapur 263153", "courses": []}, {"name": "Tata STRIVE Midnapore", "state": "West Bengal", "location": "Midnapore", "lat": null, "lng": null, "address": "Tata STRIVE Skill Development Centre Midnapore, Tata Metaliks Centre, Govt. ITI Midnapore, Dherua Midnapore Road, Rangamati, Paschim Midnapore 721102", "courses": []}, {"name": "Tata STRIVE Chittorgarh (Chanderia)", "state": "Rajasthan", "location": "Chittorgarh (Chanderia)", "lat": null, "lng": null, "address": "KOD House, Main Road Chanderia, Near Laxmi Misthan Bhandar, Near Vinayak Super Market, Chanderia, Chittorgarh 312021", "courses": []}, {"name": "Tata STRIVE Extension Centre Padra", "state": "Gujarat", "location": "Padra, Vadodara, Gujarat, India", "lat": 22.239, "lng": 73.081, "address": "Mobha road, Shree H.M. Amin Vakal Industrial Training Institute, Near Mobha village, Padra, Vadodara 391430", "courses": ["Assistant Electrician"]}, {"name": "Tata STRIVE Skill Development Centre Pune", "state": "Maharashtra", "location": "Wakdewadi, Shivajinagar, Pune, Maharashtra, India", "lat": 18.5308, "lng": 73.8567, "address": "501 & 602, Mayfair Tower, Wakdewadi, Shivajinagar, Mumbai Pune Road, Pune 411005", "courses": ["Assistant Beauty Therapist", "Auto Sales Executive (EV)", "Business Development Executive – BFSI", "Customer Care Executive (Call Centre)", "Cybershikshaa+", "Solar PV Installer (Suryamitra)"]}, {"name": "Tata STRIVE Jagannathpur", "state": "Jharkhand", "location": "Jagannathpur", "lat": null, "lng": null, "address": "ITI Jagannathpur, Burusai, Maluka 833203", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Jamshedpur", "state": "Jharkhand", "location": "Bistupur, Jamshedpur, Jharkhand, India", "lat": 22.8046, "lng": 86.2029, "address": "Tata Community Initiatives Trust, Voltas House, 2nd Floor, Block No. 12, North Wing, Main Road, Bistupur, Jamshedpur 831001", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Hardoi", "state": "Uttar Pradesh", "location": "Government ITI Campus, Hardoi, Uttar Pradesh, India", "lat": 27.394, "lng": 80.131, "address": "Tata STRIVE Extension Center HCL Foundation, Hardoi Govt. ITI Campus, Lucknow Chungi, Hardoi 241001", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Gingran Gopeshwar", "state": "Uttarakhand", "location": "Gopeshwar, Chamoli, Uttarakhand, India", "lat": 30.402, "lng": 79.32, "address": "Extension Training Centre, Gingran Gopeshwar, Chamoli 246401", "courses": []}, {"name": "Tata STRIVE New Delhi (Nirman Vihar)", "state": "Delhi", "location": "New Delhi (Nirman Vihar)", "lat": null, "lng": null, "address": "2nd Floor, Core 1, Scope Minar, Nirman Vihar, Behind V3S Mall, New Delhi 110092", "courses": []}, {"name": "Tata STRIVE Sonapur (Kamrup Metro)", "state": "Assam", "location": "Sonapur (Kamrup Metro)", "lat": null, "lng": null, "address": "Hospitality Center of Excellence, Tetelia, Sonapur, Near Hiteswar Saikia Paramedical College, Kamrup Metro 782403", "courses": []}, {"name": "Tata STRIVE Gurugram", "state": "Haryana", "location": "Gurugram", "lat": null, "lng": null, "address": "Near Hero Honda, Behind Marble Market, Sector 34, Gurugram 122004", "courses": []}, {"name": "Tata STRIVE Taraboi (Khordha)", "state": "Odisha", "location": "Taraboi (Khordha)", "lat": null, "lng": null, "address": "At PO: Taraboi, PS Jatni, Dist. Khorda (PIN as printed on page: 572050)", "courses": []}, {"name": "Tata STRIVE Varanasi", "state": "Uttar Pradesh", "location": "Varanasi", "lat": null, "lng": null, "address": "Tata STRIVE, Pisaur Road, Opp. Union Bank of India, Bhawanipur, Shivpur, Varanasi 221003", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Gwalior", "state": "Madhya Pradesh", "location": "Gwalior, Madhya Pradesh, India", "lat": 26.2183, "lng": 78.1828, "address": "7699+4H4, Bhind Road & Airport Road, Shubhanjalipuram, Maharajpura, Gwalior 474020", "courses": []}, {"name": "Tata STRIVE centre Mumbai / Navi Mumbai", "state": "Maharashtra", "location": "Mumbai / Navi Mumbai, Maharashtra, India", "lat": 19.033, "lng": 73.0297, "address": "Tata Community Initiative Trust, M.K. Shah Exports Ltd, 2nd Floor, D-141, Thane-Belapur Rd, Shivaji Nagar, MIDC Industrial Area, Shiravane, Nerul 400706", "courses": []}, {"name": "Tata STRIVE Anand", "state": "Gujarat", "location": "Anand", "lat": null, "lng": null, "address": "Shop No 226-231, H R Prime, Adjoining to Gold Cinema, Nr. Nandbhumi Party Plot, A V Road, Anand 388001", "courses": []}, {"name": "Tata STRIVE Jagitial (Metpally)", "state": "Telangana", "location": "Jagitial (Metpally)", "lat": null, "lng": null, "address": "TSEC Venkatraopet, C/o Ashram, Ibrahimpatnam Road, Near Indhiramma Colony, Metpally, Jagitial 505325", "courses": []}, {"name": "Tata STRIVE Pune Narhe", "state": "Maharashtra", "location": "Narhe, Pune, Maharashtra, India", "lat": 18.447, "lng": 73.824, "address": "Zeal College of Engineering & Research, B Building, Dhayari - Narhe Road, Narhe, Pune 411041", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Chhindwara", "state": "Madhya Pradesh", "location": "Chhindwara, Madhya Pradesh, India", "lat": 22.0574, "lng": 78.9382, "address": "Betul Road, Chhindwara 480001", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Thane", "state": "Maharashtra", "location": "Thane, Maharashtra, India", "lat": 19.2183, "lng": 72.9781, "address": "Voltas Main Plant, Pokhran Road No 2, Thane", "courses": []}, {"name": "Tata STRIVE Navsari", "state": "Gujarat", "location": "Navsari", "lat": null, "lng": null, "address": "Krishna Commercial Complex, 1st and 2nd Floor, Ward No 09 (Old), Tika No 81, Sindhi Camp Road, Navsari 396445", "courses": []}, {"name": "Tata STRIVE Nagpur Skill Centre Pardi", "state": "Maharashtra", "location": "Pardi, Nagpur, Maharashtra, India", "lat": 21.121, "lng": 79.139, "address": "Second Floor, SP Motors Complex, Near BPCL Petrol Pump, Amravati Road, Wadi, Nagpur 440023", "courses": []}, {"name": "Tata STRIVE Hyderabad (Vanasthalipuram)", "state": "Telangana", "location": "Hyderabad (Vanasthalipuram)", "lat": null, "lng": null, "address": "Plot no 1A, 1B, Autonagar, Vanasthalipuram, Hyderabad 500070", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Taloja (IGPL)", "state": "Maharashtra", "location": "Taloja, Panvel, Maharashtra, India", "lat": 19.08, "lng": 73.1, "address": "Taloja Manufacturers' Association, P-21, MIDC, Taloja, Tal. Panvel, Raigad 410208", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Jodhpur", "state": "Rajasthan", "location": "Jodhpur, Rajasthan, India", "lat": 26.2389, "lng": 73.0243, "address": "Umaid Bhawan Palace, Circuit House Rd, Cantt Area, Jodhpur 342006", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Ponda", "state": "Goa", "location": "Ponda, Goa, India", "lat": 15.4034, "lng": 73.9862, "address": "Ponda Education Society's Rajaram and Tarabai Bandekar College of Pharmacy, Near Ganapati temple, Farmagudi, Ponda, North Goa 403401", "courses": []}, {"name": "Tata STRIVE Nuapada", "state": "Odisha", "location": "Nuapada", "lat": null, "lng": null, "address": "Nuapada 766107", "courses": []}, {"name": "Tata STRIVE Jharsuguda (Badheimunda)", "state": "Odisha", "location": "Jharsuguda (Badheimunda)", "lat": null, "lng": null, "address": "Badheimunda, Jharsuguda 768201", "courses": []}, {"name": "Tata STRIVE Aligarh", "state": "Uttar Pradesh", "location": "Aligarh", "lat": null, "lng": null, "address": "Tata STRIVE Skill Development Centre, 10th Mile GT Road, Aligarh", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Nashik (Sahyadri Farms)", "state": "Maharashtra", "location": "Mohadi, Dindori, Nashik, Maharashtra, India", "lat": 20.1, "lng": 73.85, "address": "Tata Strive, Sahyadri Farms, Survey No 314-1, 314-2, At Post Mohadi, Tal Dindori, Nashik 422207", "courses": ["Assistant Electrician", "Entrepreneurship Development Program", "Field Officer – Agri", "Field Technician – Air Conditioner and Refrigerator", "General Duty Assistant", "GDA – Geriatric Care Support", "Retail Sales Associate", "Solar PV Installer (Suryamitra)"]}, {"name": "Tata STRIVE Skill Development Centre Hyderabad (Xavier Bhavan)", "state": "Telangana", "location": "West Marredpally, Secunderabad, Telangana, India", "lat": 17.448, "lng": 78.502, "address": "Xavier Bhavan, Plot No.7, Road No.16, Lane No 1, Aswini Colony, West Marredpally, Secunderabad 500026", "courses": []}, {"name": "Tata STRIVE Extension Centre Ahmedabad", "state": "Gujarat", "location": "Ahmedabad, Gujarat, India", "lat": 23.0225, "lng": 72.5714, "address": "", "courses": ["Front Office Associate", "Food & Beverage (GSA)"]}, {"name": "Tata STRIVE Extension Centre Faridabad", "state": "Haryana", "location": "Faridabad, Haryana, India", "lat": 28.4089, "lng": 77.3178, "address": "", "courses": ["Assistant Electrician", "Automotive CNC Machining Technician", "Retail Sales Associate (In-Store Demonstrator)"]}, {"name": "Tata STRIVE Extension Centre Jadhavwadi Chikhali SKF", "state": "Maharashtra", "location": "Jadhavwadi, Chikhali, Pimpri-Chinchwad, Maharashtra, India", "lat": 18.68, "lng": 73.831, "address": "", "courses": ["Auto Service Technician (2 & 3 Wheeler EV)", "Automotive Telecaller", "Auto Sales Executive (EV)", "Four Wheeler Service Assistant"]}, {"name": "Tata STRIVE Extension Centre Dahariya Haldwani", "state": "Uttarakhand", "location": "Dahariya, Haldwani, Uttarakhand, India", "lat": 29.2183, "lng": 79.515, "address": "", "courses": ["2 Wheeler ICE + CNG"]}, {"name": "Tata STRIVE Extension Centre Chakan Pune", "state": "Maharashtra", "location": "Chakan, Pune, Maharashtra, India", "lat": 18.7606, "lng": 73.8636, "address": "", "courses": ["Assistant Electrician", "Automotive CNC Machining Technician", "Business Development Executive – BFSI"]}, {"name": "Tata STRIVE Extension Centre Ekta Nagar", "state": "Gujarat", "location": "Ekta Nagar, Gujarat, India", "lat": 21.884, "lng": 73.7191, "address": "", "courses": []}, {"name": "Tata STRIVE Extension Centre Scope Minar Delhi", "state": "Delhi", "location": "Laxmi Nagar, Delhi, India", "lat": 28.627, "lng": 77.277, "address": "", "courses": []}, {"name": "Tata STRIVE Skill Development Centre Hyderabad", "state": "Telangana", "location": "West Marredpally, Secunderabad, Telangana, India", "lat": 17.448, "lng": 78.502, "address": "", "courses": []}];
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const label = n => n.replace(/^Tata STRIVE\s*/i, '') || n;
+const hasCoords = c => typeof c.lat === 'number' && typeof c.lng === 'number';
+
+/* ---------- map + base layers ---------- */
+const map = L.map('map', {zoomControl:false, minZoom:3, worldCopyJump:true}).setView([22.5, 79], 5);
+L.control.zoom({position:'bottomright'}).addTo(map);
+L.control.scale({position:'bottomleft', imperial:false}).addTo(map);
+
+const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+const bases = {
+  satellite: L.layerGroup([
+    L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, attribution:'Imagery &copy; Esri, Maxar, Earthstar Geographics'}),
+    L.tileLayer(esri + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {maxZoom:19})
+  ]),
+  terrain: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {maxZoom:17, subdomains:'abc', attribution:'&copy; OpenStreetMap contributors, SRTM | Style &copy; OpenTopoMap (CC-BY-SA)'})
+};
+let currentBase = 'satellite';
+bases[currentBase].addTo(map);
+document.querySelectorAll('.switch button[data-base]').forEach(btn => btn.addEventListener('click', () => {
+  const next = btn.dataset.base;
+  if (next === currentBase) return;
+  map.removeLayer(bases[currentBase]);
+  bases[next].addTo(map);
+  currentBase = next;
+  document.querySelectorAll('.switch button[data-base]').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+}));
+
+/* ---------- heat layer (added first so it sits under the points) ---------- */
+const heat = typeof L.heatLayer === 'function'
+  ? L.heatLayer([], {radius:44, blur:34, maxZoom:5, max:1, minOpacity:.45,
+      gradient:{0.2:'#ffe08a', 0.5:'#ff9f1c', 0.78:'#e63946', 1:'#8a0016'}}).addTo(map)
+  : null;
+if (!heat) document.getElementById('tHeat').hidden = true;
+const tuneHeat = () => heat && heat.setOptions({radius: Math.max(30, Math.min(95, 14 + map.getZoom() * 7))});
+map.on('zoomend', tuneHeat); tuneHeat();
+
+/* ---------- markers ---------- */
+const cluster = L.markerClusterGroup({
+  showCoverageOnHover:false, maxClusterRadius:38, spiderfyOnMaxZoom:true,
+  iconCreateFunction: c => L.divIcon({html:c.getChildCount(), className:'cl', iconSize:[34,34]})
+});
+map.addLayer(cluster);
+
+const tipHtml = c => `<h4>${esc(label(c.name))}</h4><div class="st">${esc(c.state)}</div>` +
+  (c.courses.length ? `<ul>${c.courses.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : `<div class="na">Course details not listed</div>`);
+
+const popHtml = c => `<h3>${esc(c.name)}</h3><p class="addr">${esc(c.address || c.location)}</p>` +
+  (c.courses.length ? `<div class="chips">${c.courses.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>` : `<p class="na">Course details not listed in source</p>`) +
+  `<div class="foot"><span>${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}</span><a href="https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}" target="_blank" rel="noopener">Open in Google Maps</a></div>`;
+
+const sizeOf = c => 10 + Math.min(c.courses.length, 6) * 1.3;
+const baseStyle = c => ({radius:sizeOf(c), weight:2.5, color:'#16202b', fillColor: c.courses.length ? '#f5a524' : '#ffffff', fillOpacity:1});
+CENTRES.forEach(c => {
+  if (!hasCoords(c)) return;
+  const m = L.circleMarker([c.lat, c.lng], baseStyle(c));
+  m.bindTooltip(tipHtml(c), {className:'tip', direction:'top', offset:[0,-12], opacity:1});
+  m.bindPopup(popHtml(c), {className:'pop', maxWidth:300, autoPanPadding:[40,40]});
+  m.on('mouseover', () => m.setStyle({radius:sizeOf(c) + 4, weight:3}));
+  m.on('mouseout',  () => m.setStyle({radius:sizeOf(c), weight:2.5}));
+  c._marker = m;
+});
+
+/* ---------- filters + list ---------- */
+const $ = id => document.getElementById(id);
+const f = {q:'', state:'', course:'', only:false};
+
+const states = [...new Set(CENTRES.map(c => c.state))].sort();
+const courses = [...new Set(CENTRES.flatMap(c => c.courses))].sort();
+$('stateSel').innerHTML = '<option value="">All states</option>' + states.map(s => `<option>${esc(s)}</option>`).join('');
+$('courseSel').innerHTML = '<option value="">All courses</option>' + courses.map(s => `<option>${esc(s)}</option>`).join('');
+
+const matches = (c, skipState) => {
+  if (!skipState && f.state && c.state !== f.state) return false;
+  if (f.course && !c.courses.includes(f.course)) return false;
+  if (f.only && !c.courses.length) return false;
+  if (f.q) {
+    const hay = [c.name, c.state, c.location, c.address, ...c.courses].join(' ').toLowerCase();
+    if (!f.q.toLowerCase().split(/\s+/).every(w => hay.includes(w))) return false;
+  }
+  return true;
+};
+
+function render(fit = true) {
+  const shown = CENTRES.filter(matches);
+  const plotted = shown.filter(hasCoords);
+  const missing = shown.filter(c => !hasCoords(c));
+
+  cluster.clearLayers();
+  cluster.addLayers(plotted.map(c => c._marker));
+  if (heat) heat.setLatLngs(plotted.map(c => [c.lat, c.lng, c.courses.length ? 1 : 0.7]));
+  renderStates();
+
+  const totalPlotted = CENTRES.filter(hasCoords).length;
+  $('summary').textContent = `${plotted.length} of ${totalPlotted} mapped centres across ${new Set(plotted.map(c => c.state)).size} states`;
+
+  $('list').innerHTML = plotted.length
+    ? plotted.slice().sort((a, b) => label(a.name).localeCompare(label(b.name))).map(c => {
+        const i = CENTRES.indexOf(c);
+        return `<button class="item" data-i="${i}"><i class="dot ${c.courses.length ? 'known' : 'none'}"></i><span><b>${esc(label(c.name))}</b><small>${esc(c.state)}${c.courses.length ? ' · ' + c.courses.length + (c.courses.length === 1 ? ' course' : ' courses') : ''}</small></span></button>`;
+      }).join('')
+    : '<div class="empty">No centres match these filters.</div>';
+
+  const md = $('missing');
+  if (missing.length) {
+    md.hidden = false;
+    md.innerHTML = `<summary>${missing.length} without coordinates</summary><ul>${missing.map(c => `<li>${esc(label(c.name))}, ${esc(c.state)}</li>`).join('')}</ul>`;
+  } else md.hidden = true;
+
+  if (fit && plotted.length) map.fitBounds(cluster.getBounds().pad(0.2), {maxZoom: plotted.length === 1 ? 11 : 9, animate:true});
+}
+
+function renderStates() {
+  const counts = {};
+  CENTRES.filter(c => hasCoords(c) && matches(c, true)).forEach(c => counts[c.state] = (counts[c.state] || 0) + 1);
+  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const max = rows.length ? rows[0][1] : 1;
+  $('bars').innerHTML = rows.map(([s, n]) =>
+    `<button class="bar${f.state === s ? ' on' : ''}" data-s="${esc(s)}" title="${esc(s)}"><span>${esc(s)}</span><i style="--w:${(n / max * 100).toFixed(0)}%"></i><em>${n}</em></button>`).join('');
+}
+$('bars').addEventListener('click', e => {
+  const b = e.target.closest('.bar'); if (!b) return;
+  f.state = f.state === b.dataset.s ? '' : b.dataset.s;
+  $('stateSel').value = f.state; render();
+});
+
+/* layer toggles */
+const layerOn = {heat:true, points:true};
+document.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.toggle, lyr = k === 'heat' ? heat : cluster;
+  if (!lyr) return;
+  layerOn[k] = !layerOn[k];
+  b.setAttribute('aria-pressed', String(layerOn[k]));
+  layerOn[k] ? map.addLayer(lyr) : map.removeLayer(lyr);
+}));
+const ensurePoints = () => { if (!layerOn.points) $('tPoints').click(); };
+
+/* export the current (filtered) list */
+$('export').addEventListener('click', () => {
+  const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const rows = CENTRES.filter(c => matches(c));
+  const csv = ['centre name,state,location,latitude,longitude,address,courses offered']
+    .concat(rows.map(c => [c.name, c.state, c.location, hasCoords(c) ? c.lat : '', hasCoords(c) ? c.lng : '', c.address, c.courses.join('; ')].map(q).join(','))).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], {type:'text/csv'}));
+  a.download = 'tata_strive_centres_filtered.csv';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  $('status').textContent = `Exported ${rows.length} centres.`;
+});
+
+/* nearest centre to the visitor */
+const km = (a, b, c, d) => {
+  const r = Math.PI / 180, h = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+};
+let me = null;
+$('near').addEventListener('click', () => {
+  const st = $('status');
+  if (!navigator.geolocation) { st.textContent = 'Location is not available in this browser.'; return; }
+  st.textContent = 'Finding your location...';
+  navigator.geolocation.getCurrentPosition(p => {
+    const la = p.coords.latitude, lo = p.coords.longitude;
+    const pool = CENTRES.filter(c => hasCoords(c) && matches(c));
+    if (!pool.length) { st.textContent = 'No centres match the current filters.'; return; }
+    let best = pool[0], bd = Infinity;
+    pool.forEach(c => { const d = km(la, lo, c.lat, c.lng); if (d < bd) { bd = d; best = c; } });
+    st.textContent = `Nearest: ${label(best.name)}, about ${Math.round(bd)} km away.`;
+    if (me) map.removeLayer(me);
+    me = L.circleMarker([la, lo], {radius:7, weight:3, color:'#fff', fillColor:'#1f5fbf', fillOpacity:1}).bindTooltip('You are here').addTo(map);
+    ensurePoints();
+    map.fitBounds([[la, lo], [best.lat, best.lng]], {padding:[90, 90], maxZoom:12});
+    map.once('moveend', () => cluster.zoomToShowLayer(best._marker, () => best._marker.openPopup()));
+  }, () => { st.textContent = 'Could not get your location. Permission may be blocked, or the page is opened as a local file.'; }, {timeout:10000});
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); setCollapsed(false); $('q').focus(); }
+});
+
+$('list').addEventListener('click', e => {
+  const b = e.target.closest('.item'); if (!b) return;
+  ensurePoints();
+  const m = CENTRES[+b.dataset.i]._marker;
+  cluster.zoomToShowLayer(m, () => { map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 12), {duration:.8}); m.openPopup(); });
+  if (innerWidth <= 640) setCollapsed(true);
+});
+
+let t;
+$('q').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { f.q = e.target.value.trim(); render(); }, 180); });
+$('stateSel').addEventListener('change', e => { f.state = e.target.value; render(); });
+$('courseSel').addEventListener('change', e => { f.course = e.target.value; render(); });
+$('onlyCourses').addEventListener('change', e => { f.only = e.target.checked; render(); });
+$('reset').addEventListener('click', () => {
+  Object.assign(f, {q:'', state:'', course:'', only:false});
+  $('q').value = ''; $('stateSel').value = ''; $('courseSel').value = ''; $('onlyCourses').checked = false;
+  map.closePopup(); render();
+});
+
+function setCollapsed(on) {
+  $('panel').classList.toggle('collapsed', on);
+  $('toggle').textContent = on ? 'Show' : 'Hide';
+  $('toggle').setAttribute('aria-expanded', String(!on));
+}
+$('toggle').addEventListener('click', () => setCollapsed(!$('panel').classList.contains('collapsed')));
+if (innerWidth <= 640) setCollapsed(true);
+
+render();
+</script>
+</body>
+</html>
