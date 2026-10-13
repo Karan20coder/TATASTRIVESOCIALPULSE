@@ -7,7 +7,7 @@ import math
 import secrets
 import time
 from base64 import b64decode
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -31,6 +31,7 @@ from harken.auth import (
 from harken.analyze.classifier import CATEGORIES, ContentClassifier
 from harken.analyze.copilot import CampaignCopilot
 from harken.analyze.questions import QuestionDiscoverer
+from harken.analyze.topic_intelligence import get_topic_engine
 from harken.analyze.trends import TrendEngine
 from harken.config import Config
 from harken.models import Mention, Sentiment
@@ -271,6 +272,13 @@ class CampaignDraftRequest(BaseModel):
 
 class IngestTriggerRequest(BaseModel):
     queries: list[str] | None = None
+
+
+class TopicIntelligenceRequest(BaseModel):
+    range: str = "all"
+    source: str | None = None
+    query: str | None = None
+    project_id: int | None = None
 
 
 def create_app(
@@ -1073,6 +1081,45 @@ def create_app(
         require_csrf(request)
         res = await scheduler.trigger_refresh(queries=payload.queries)
         return JSONResponse(res)
+
+    @app.post("/api/news/topic-intelligence/generate")
+    def api_generate_topic_intelligence(payload: TopicIntelligenceRequest):
+        db = store()
+        try:
+            mentions = db.mentions(query=payload.query, project_id=payload.project_id, limit=1000)
+            engine = get_topic_engine()
+            res = engine.analyze(
+                mentions,
+                date_range=payload.range,
+                source_filter=payload.source,
+                query=payload.query,
+                project_id=payload.project_id,
+            )
+            return JSONResponse(asdict(res))
+        finally:
+            db.close()
+
+    @app.get("/api/news/topic-intelligence")
+    def api_get_topic_intelligence(
+        range: str = "all",
+        source: str | None = None,
+        q: str | None = None,
+        p: int | None = Query(default=None, ge=1, le=_MAX_ID),
+    ):
+        db = store()
+        try:
+            mentions = db.mentions(query=q, project_id=p, limit=1000)
+            engine = get_topic_engine()
+            res = engine.analyze(
+                mentions,
+                date_range=range,
+                source_filter=source,
+                query=q,
+                project_id=p,
+            )
+            return JSONResponse(asdict(res))
+        finally:
+            db.close()
 
     return app
 

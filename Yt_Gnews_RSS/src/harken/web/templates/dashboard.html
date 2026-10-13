@@ -98,7 +98,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0a0b0e">
   <title>Social Pulse AI · Tata STRIVE{% if query %} — {{ query }}{% elif project %} — {{ project.name }}{% endif %}</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%233B2A22'/%3E%3Cpath d='M10 20h6l4-8 4 16 4-8h6' fill='none' stroke='%23B08968' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%23002244'/%3E%3Cpath d='M10 20h6l4-8 4 16 4-8h6' fill='none' stroke='%230ea5e9' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="preload" href="/static/fonts/fraunces.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/static/fonts/hanken.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
@@ -217,7 +217,7 @@
         </div>
       </div>
 
-      <div class="kpi-card" style="--accent-color: var(--caramel-roast);">
+      <div class="kpi-card" style="--accent-color: var(--tata-azure);">
         <div class="kpi-label">Social &amp; Media Channels <span>🌐</span></div>
         <div class="kpi-val">{{ summary.by_source | length }} Active</div>
         <div class="kpi-meta">
@@ -381,7 +381,7 @@
   <div class="tab-panel" id="pane-news">
     <div class="news-header-strip anim" style="--d:0">
       <div>
-        <span class="eyebrow" style="color: var(--caramel-roast);">google news rss &amp; verified news coverage</span>
+        <span class="eyebrow" style="color: var(--tata-azure);">google news rss &amp; verified news coverage</span>
         <h2 style="margin: 4px 0 0; font-size: 18px; color: #ffffff;">Editorial &amp; Institutional Intelligence</h2>
       </div>
 
@@ -391,6 +391,11 @@
           <option value="">All News Sources</option>
           <option value="rss">Google News RSS (Free)</option>
           <option value="gnews">GNews API</option>
+        </select>
+        <select id="news-range-filter" class="news-search-input" style="min-width: 120px;">
+          <option value="all">All Dates</option>
+          <option value="30d">Last 30 Days</option>
+          <option value="7d">Last 7 Days</option>
         </select>
         <span class="mono" style="font-size: 12px; color: var(--dim);" id="news-filter-status">
           Showing {{ news_articles | length }} article{{ '' if news_articles | length == 1 else 's' }}
@@ -432,6 +437,205 @@
         No news articles collected yet. Click <strong>Refresh Live Data</strong> to fetch from Google News RSS.
       </div>
       {% endfor %}
+    </div>
+
+    <!-- =========================================================================
+         FEATURE: GENERATE TOPIC INTELLIGENCE (News Intelligence Extension)
+         ========================================================================= -->
+    <div class="topic-intel-trigger-wrap anim" style="--d:2;">
+      <div>
+        <button type="button" id="btn-generate-topic-intel" class="btn-generate-topic-intel">
+          <span class="btn-intel-icon">🧠</span>
+          <span id="btn-intel-text">Generate Topic Intelligence →</span>
+        </button>
+      </div>
+      <div id="topic-intel-status" class="topic-intel-status-msg">
+        <span>Click to analyse verified articles collected in the database.</span>
+      </div>
+    </div>
+
+    <!-- Topic Intelligence Dedicated Section -->
+    <div id="topic-intel-container" class="topic-intel-container" style="display: none;">
+      <!-- Header strip with deduplication stats -->
+      <div class="topic-intel-header-box">
+        <div>
+          <span class="eyebrow" style="color: var(--tata-azure);">strategic news discourse intelligence</span>
+          <h2>News Topic Intelligence &amp; Strategic Prioritisation</h2>
+        </div>
+        <div id="topic-audit-pill" class="topic-intel-audit-pill">
+          <span>Deduplicated Analysis Active</span>
+        </div>
+      </div>
+
+      <!-- 4 Summary KPI Cards -->
+      <div class="intel-kpi-grid">
+        <div class="intel-kpi-card" style="--kpi-accent: #0ea5e9;">
+          <div class="intel-kpi-label">Unique Articles Analysed <span>📰</span></div>
+          <div class="intel-kpi-val" id="kpi-unique-articles">—</div>
+          <div class="intel-kpi-sub" id="kpi-dedup-sub">From collected media items</div>
+        </div>
+
+        <div class="intel-kpi-card" style="--kpi-accent: #10b981;">
+          <div class="intel-kpi-label">Distinct Topics Identified <span>🏷️</span></div>
+          <div class="intel-kpi-val" id="kpi-distinct-topics">—</div>
+          <div class="intel-kpi-sub">Across 8 taxonomy domains</div>
+        </div>
+
+        <div class="intel-kpi-card" style="--kpi-accent: #f59e0b;">
+          <div class="intel-kpi-label">Most Discussed Topic <span>🔥</span></div>
+          <div class="intel-kpi-val highlight" id="kpi-top-topic" style="font-size: 20px;">—</div>
+          <div class="intel-kpi-sub" id="kpi-top-share">— of news coverage</div>
+        </div>
+
+        <div class="intel-kpi-card" style="--kpi-accent: #38bdf8;">
+          <div class="intel-kpi-label">Highest-Priority for Tata STRIVE <span>🎯</span></div>
+          <div class="intel-kpi-val highlight" id="kpi-highest-priority" style="font-size: 20px;">—</div>
+          <div class="intel-kpi-sub" id="kpi-highest-score">Based on strategic alignment</div>
+        </div>
+      </div>
+
+      <!-- Interactive Dither Donut Chart: "What Topics Dominate the News?" -->
+      <div class="topic-pie-section dither-chart-card">
+        <div class="dither-chart-header">
+          <div class="dither-header-left">
+            <div class="dither-icon-badge">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </div>
+            <div>
+              <span class="eyebrow" style="color: var(--tata-azure);">editorial topic distribution</span>
+              <h3 class="dither-chart-title">What Topics Dominate the News?</h3>
+              <p class="topic-section-sub">Dithered canvas chart with real-time spring physics &amp; particle dynamics</p>
+            </div>
+          </div>
+
+          <!-- Period Filter Tabs -->
+          <div class="dither-period-tabs" id="dither-period-tabs">
+            <button type="button" class="dither-period-tab active" data-period="all">All News</button>
+            <button type="button" class="dither-period-tab" data-period="month">Month (30d)</button>
+            <button type="button" class="dither-period-tab" data-period="week">Week (7d)</button>
+          </div>
+        </div>
+
+        <div class="topic-donut-grid">
+          <div class="donut-canvas-wrapper" id="donut-canvas-container">
+            <canvas id="dither-donut-canvas" class="dither-donut-canvas" width="400" height="400"></canvas>
+            <div class="donut-center-info" id="donut-center-info">
+              <span class="donut-center-metric" id="donut-center-metric">—</span>
+              <span class="donut-center-label" id="donut-center-label">Unique Articles</span>
+              <span class="donut-center-sub" id="donut-center-sub">100% Share</span>
+            </div>
+          </div>
+
+          <div class="donut-legend dither-breakdown-list" id="donut-legend">
+            <!-- Legend items populated dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Topic Priority Ranking: "Topics Tata STRIVE Should Prioritise" -->
+      <div class="topic-priority-section">
+        <div class="topic-section-title-wrap">
+          <span class="eyebrow" style="color: var(--tata-azure);">strategic prioritization model</span>
+          <h3>Topics Tata STRIVE Should Prioritise</h3>
+          <p class="topic-section-sub">
+            Transparent scoring ranking topics by news coverage frequency, strategic alignment with Tata STRIVE's skilling mission, publication recency, historical momentum, and publisher diversity.
+          </p>
+        </div>
+
+        <div class="methodology-banner">
+          <span class="icon">ℹ️</span>
+          <div>
+            <b>News-Coverage Intelligence Notice:</b> This priority rank assesses verified news-media prominence and strategic relevance to Tata STRIVE, not public opinion polls. Weights: <b>Coverage Frequency (30%)</b>, <b>Mission Relevance (30%)</b>, <b>Recency (15%)</b>, <b>Momentum (15%)</b>, <b>Publisher Diversity (10%)</b>.
+          </div>
+        </div>
+
+        <div class="priority-deck" id="priority-deck">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Topic Momentum Time-Series Chart -->
+      <div class="topic-momentum-section">
+        <div class="topic-section-title-wrap">
+          <span class="eyebrow" style="color: var(--tata-azure);">coverage timeline over time</span>
+          <h3>Topic Momentum Timeline</h3>
+          <p class="topic-section-sub">
+            Tracking actual publication dates across unique articles. Select topics below to compare media momentum over time.
+          </p>
+        </div>
+
+        <div class="momentum-filter-pills" id="momentum-topic-pills">
+          <!-- Populated dynamically -->
+        </div>
+
+        <div class="momentum-chart-stage" id="momentum-chart-stage">
+          <!-- SVG timeline rendered dynamically -->
+        </div>
+      </div>
+
+      <!-- AI Insights and Communication Recommendations -->
+      <div class="topic-ai-section">
+        <div class="topic-section-title-wrap">
+          <span class="eyebrow" style="color: var(--tata-azure);">actionable communication strategy</span>
+          <h3>AI Strategic Insights &amp; Campaign Recommendations</h3>
+          <p class="topic-section-sub">
+            Evidence-grounded narrative recommendations for Tata STRIVE's communications team. Every recommendation cites verified media coverage.
+          </p>
+        </div>
+
+        <div class="ai-recs-grid" id="ai-recs-grid">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- News Topic Explorer Sortable Table -->
+      <div class="topic-explorer-section">
+        <div class="topic-section-title-wrap">
+          <span class="eyebrow" style="color: var(--tata-azure);">granular topic breakdown</span>
+          <h3>News Topic Explorer</h3>
+          <p class="topic-section-sub">
+            Interactive sortable table of all detected topics, publication freshness, publisher diversity, and supporting article links.
+          </p>
+        </div>
+
+        <div class="explorer-table-wrap">
+          <table class="explorer-table" id="explorer-table">
+            <thead>
+              <tr>
+                <th data-sort="name">Topic ↕</th>
+                <th data-sort="count">Articles ↕</th>
+                <th data-sort="pct">Share (%) ↕</th>
+                <th data-sort="date">Latest Date ↕</th>
+                <th data-sort="pubs">Publishers ↕</th>
+                <th data-sort="score">Priority Score ↕</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="explorer-tbody">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Supporting Articles Modal Dialog -->
+    <div class="articles-modal-backdrop" id="articles-modal-backdrop" aria-hidden="true">
+      <div class="articles-modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-topic-title">
+        <div class="articles-modal-header">
+          <h3 id="modal-topic-title">
+            <span id="modal-topic-color-dot" style="width: 12px; height: 12px; border-radius: 4px; display: inline-block;"></span>
+            <span id="modal-topic-name">Topic Articles</span>
+            <span class="tab-badge" id="modal-topic-count">0</span>
+          </h3>
+          <button type="button" class="articles-modal-close" id="btn-close-modal" aria-label="Close modal">✕</button>
+        </div>
+        <div class="articles-modal-body" id="modal-articles-list">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
     </div>
   </div>
 
@@ -672,7 +876,7 @@
        ========================================================================= -->
   <div class="tab-panel" id="pane-sources">
     <div style="margin-bottom: 20px;">
-      <span class="eyebrow" style="color: var(--caramel-roast);">connector matrix &amp; data provenance</span>
+      <span class="eyebrow" style="color: var(--tata-azure);">connector matrix &amp; data provenance</span>
       <h2 style="margin: 4px 0 0; font-size: 20px; color: #ffffff;">Modular Data Sources Architecture</h2>
       <p style="margin: 4px 0 0; font-size: 13.5px; color: var(--dim);">
         Each source connector operates independently. API keys are safely managed backend-side without frontend exposure.
