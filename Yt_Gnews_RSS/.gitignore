@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Harken local data
+*.db
+harken.db
+harken-demo.db
+
+# Env / secrets
+.env
+.env.local
+
+# Internal project notes (not part of the public repo)
+PROGRESS.md
+launch/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# uv lockfile (not used by CI; deps are loose)
+uv.lock
+.coverage
+.claude/

@@ -1,0 +1,791 @@
+{% macro scan_panel() %}
+<section class="scan-panel panel anim" style="--d:0">
+  <form id="scan-form" data-csrf="{{ csrf_token }}" data-project-id="{{ project.id if project else '' }}">
+    <div class="scan-primary">
+      <label class="scan-query">
+        <span class="eyebrow">keyword or product</span>
+        <input name="query" type="text" value="{{ query or '' }}" maxlength="200" required {% if not can_mutate %}disabled{% endif %}
+               placeholder="e.g. Acme Cloud" autocomplete="off">
+      </label>
+      <div class="scan-actions">
+        <button class="scan-button primary" type="submit" name="mode" value="incremental" {% if not can_mutate %}disabled{% endif %}>scan latest</button>
+        <button class="scan-button" type="submit" name="mode" value="backfill" {% if not can_mutate %}disabled{% endif %}>backfill 3 pages</button>
+      </div>
+    </div>
+    <fieldset class="source-picker">
+      <legend class="eyebrow">sources</legend>
+      <div class="source-options">
+        {% for source in available_sources %}
+        {% set state = source_states.get(source.name, {}) %}
+        <label class="source-option{% if source.needs_config and not source.configured %} needs-config{% endif %}">
+          <input type="checkbox" name="source" value="{{ source.name }}" {% if not can_mutate %}disabled{% endif %}
+                 {% if source.name in tracking_sources %}checked{% endif %}>
+          <span>{{ source.label }}</span>
+          {% if state.get('backfill_complete') %}<small>complete</small>
+          {% elif source.needs_config and not source.configured %}<small>setup needed</small>{% endif %}
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div class="scan-foot">
+      <span class="scan-hint">Latest scans catch up from saved cursors; backfill walks into older history.</span>
+      <span class="scan-status mono" id="scan-status" aria-live="polite"></span>
+    </div>
+  </form>
+</section>
+{% endmacro %}
+{% macro project_panel() %}
+<section class="project-panel panel anim" style="--d:0" data-csrf="{{ csrf_token }}" data-project-id="{{ project.id if project else '' }}">
+  <div class="project-summary">
+    <div>
+      <span class="eyebrow">projects</span>
+      <strong>{{ project.name if project else 'Group related keywords' }}</strong>
+      <span class="project-meta">
+        {% if project %}{{ project.query_count }} keyword{{ '' if project.query_count == 1 else 's' }} · {{ project.mention_count }} mention{{ '' if project.mention_count == 1 else 's' }}
+        {% else %}Create a rollup for a product family, campaign, or competitor set.{% endif %}
+      </span>
+    </div>
+    {% if can_mutate %}<form id="project-create-form" class="project-inline-form">
+      <label class="sr-only" for="project-name">New project name</label>
+      <input id="project-name" name="name" maxlength="100" placeholder="New project name" required>
+      <button type="submit" class="scan-button">create</button>
+    </form>{% elif current_user %}<span class="role-note">{{ current_user.role }} · read only</span>{% endif %}
+  </div>
+  {% if project %}
+  <div class="project-members" aria-label="Project keywords">
+    {% for member in project.queries %}
+    <span class="project-chip">
+      <a href="/?p={{ project.id }}&amp;q={{ member | urlencode }}" title="{{ member }}">{{ member }}</a>
+      {% if can_mutate and project.id != 1 %}<button type="button" data-project-remove="{{ member }}" aria-label="Remove {{ member }} from project">×</button>{% endif %}
+    </span>
+    {% else %}<span class="project-empty">No keywords yet. Scan a new one below or add an existing keyword.</span>{% endfor %}
+  </div>
+  <div class="project-actions">
+    {% if can_mutate and unassigned_queries %}
+    <form id="project-add-form" class="project-inline-form" data-project-id="{{ project.id }}">
+      <label class="sr-only" for="project-query">Existing tracked keyword</label>
+      <select id="project-query" name="query">
+        {% for candidate in unassigned_queries %}<option value="{{ candidate }}">{{ candidate }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="scan-button">add keyword</button>
+    </form>
+    {% endif %}
+    {% if can_mutate and project.id != 1 %}<button type="button" class="project-delete" data-project-delete="{{ project.id }}" aria-haspopup="dialog" aria-controls="project-delete-dialog">delete project</button>{% endif %}
+    <span class="scan-status mono" id="project-status" aria-live="polite"></span>
+  </div>
+  {% if can_mutate and project.id != 1 %}
+  <dialog class="confirm-dialog" id="project-delete-dialog" aria-labelledby="project-delete-title" aria-describedby="project-delete-copy">
+    <form method="dialog">
+      <span class="eyebrow">confirm action</span>
+      <h2 id="project-delete-title">Delete project?</h2>
+      <p id="project-delete-copy"><strong>{{ project.name }}</strong> will be removed as a grouping. Its keywords and mentions will be preserved.</p>
+      <div class="confirm-actions">
+        <button type="submit" class="scan-button" value="cancel" autofocus>cancel</button>
+        <button type="button" class="scan-button confirm-danger" data-confirm-project-delete="{{ project.id }}">yes, delete project</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
+  {% endif %}
+  {% if not project %}<span class="scan-status mono" id="project-status" aria-live="polite"></span>{% endif %}
+</section>
+{% endmacro %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0a0b0e">
+  <title>Social Pulse AI · Tata STRIVE{% if query %} — {{ query }}{% elif project %} — {{ project.name }}{% endif %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%233B2A22'/%3E%3Cpath d='M10 20h6l4-8 4 16 4-8h6' fill='none' stroke='%23B08968' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preload" href="/static/fonts/fraunces.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/hanken.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<!-- Topbar -->
+<header class="topbar">
+  <a class="brand-tata" href="/">
+    <div class="brand-logo-icon">TS</div>
+    <div class="brand-text-wrap">
+      <span class="brand-title">Social Pulse AI</span>
+      <span class="brand-sub">Tata STRIVE Intelligence</span>
+    </div>
+  </a>
+
+  <div class="topbar-right">
+    <div class="topbar-actions">
+      <button type="button" class="btn-refresh-live" id="btn-run-ingest" data-csrf="{{ csrf_token }}" title="Run scheduled ingestion now across YouTube & Google News RSS">
+        <span class="refresh-icon">⚡</span>
+        <span class="refresh-label">Refresh Live Data</span>
+      </button>
+    </div>
+
+    {% if projects %}
+    <form class="switcher" method="get" action="/">
+      <span class="switch-eyebrow">project</span>
+      <div class="select-wrap">
+        <select name="p" onchange="this.form.submit()" aria-label="Project">
+          <option value="" {% if not project %}selected{% endif %}>All Projects</option>
+          {% for item in projects %}
+          <option value="{{ item.id }}" {% if project and item.id == project.id %}selected{% endif %}>{{ item.name }}</option>
+          {% endfor %}
+        </select>
+        <svg viewBox="0 0 12 12" class="caret" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </div>
+    </form>
+    {% endif %}
+
+    <form class="switcher" method="get" action="/">
+      {% if project %}<input type="hidden" name="p" value="{{ project.id }}">{% endif %}
+      <span class="switch-eyebrow">tracking</span>
+      <div class="select-wrap">
+        <select name="q" onchange="this.form.submit()" aria-label="Tracked keyword">
+          {% if project %}<option value="" {% if not query %}selected{% endif %}>all keywords</option>{% else %}<option value="" {% if not query %}selected{% endif %}>All Topics (Global)</option>{% endif %}
+          {% for qq in (queries if project else all_queries) %}
+          <option value="{{ qq }}" {% if qq == query %}selected{% endif %}>{{ qq }}</option>
+          {% endfor %}
+        </select>
+        <svg viewBox="0 0 12 12" class="caret" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </div>
+    </form>
+
+    {% if current_user %}
+    <span class="account-pill"><b>{{ current_user.username }}</b><small>{{ current_user.role }}</small></span>
+    <form method="post" action="/logout" class="logout-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button type="submit">sign out</button>
+    </form>
+    {% else %}
+    <span class="live" title="Ingestion scheduler is active every 30m"><i></i>30m Auto-Refresh</span>
+    {% endif %}
+  </div>
+</header>
+
+<!-- Navigation Tabs Bar -->
+<nav class="tabs-bar" role="tablist" aria-label="Social Pulse Navigation">
+  <button type="button" class="tab-link active" data-tab="overview" role="tab" aria-selected="true" aria-controls="pane-overview">
+    <span>📊 Overview &amp; Pulse</span>
+  </button>
+  <button type="button" class="tab-link" data-tab="news" role="tab" aria-selected="false" aria-controls="pane-news">
+    <span>📰 News Intelligence</span>
+    <span class="tab-badge" id="news-count-badge">{{ news_articles | length }}</span>
+  </button>
+  <button type="button" class="tab-link" data-tab="explorer" role="tab" aria-selected="false" aria-controls="pane-explorer">
+    <span>🔍 Conversation Explorer</span>
+    <span class="tab-badge" id="mentions-count-badge">{{ mentions | length }}</span>
+  </button>
+  <button type="button" class="tab-link" data-tab="sources" role="tab" aria-selected="false" aria-controls="pane-sources">
+    <span>⚙️ Sources &amp; Settings</span>
+  </button>
+</nav>
+
+<main style="padding-top: 18px;">
+
+  <!-- =========================================================================
+       TAB 1: OVERVIEW & PULSE
+       ========================================================================= -->
+  <div class="tab-panel active" id="pane-overview">
+    <!-- Executive KPI Grid -->
+    <div class="kpi-grid anim" style="--d:0">
+      <div class="kpi-card" style="--accent-color: #0ea5e9;">
+        <div class="kpi-label">Total Verified Records <span>📥</span></div>
+        <div class="kpi-val">{{ summary.total }}</div>
+        <div class="kpi-meta">
+          Across <b>{{ summary.by_source.get('youtube', 0) }}</b> YouTube + <b>{{ summary.by_source.get('linkedin', 0) }}</b> LinkedIn + <b>{{ summary.by_source.get('facebook', 0) }}</b> FB + <b>{{ summary.by_source.get('rss', 0) + summary.by_source.get('gnews', 0) }}</b> News
+        </div>
+      </div>
+
+      <div class="kpi-card" style="--accent-color: #10b981;">
+        <div class="kpi-label">Audience Net Sentiment <span>🎯</span></div>
+        <div class="kpi-val" style="color: {{ '#34d399' if net > 0.05 else ('#f87171' if net < -0.05 else '#94a3b8') }}">
+          {{ '+' if net > 0 else '' }}{{ (net * 100) | round(0) | int }}%
+        </div>
+        <div class="kpi-meta">
+          <b>{{ pos }}</b> pos · <b>{{ neu }}</b> neu · <b>{{ neg }}</b> neg
+        </div>
+      </div>
+
+      <div class="kpi-card" style="--accent-color: #f59e0b;">
+        <div class="kpi-label">Active Monitoring Feeds <span>📡</span></div>
+        <div class="kpi-val">7</div>
+        <div class="kpi-meta">
+          <b>5</b> RSS Skilling Feeds + <b>YouTube</b> + <b>GNews</b>
+        </div>
+      </div>
+
+      <div class="kpi-card" style="--accent-color: var(--caramel-roast);">
+        <div class="kpi-label">Social &amp; Media Channels <span>🌐</span></div>
+        <div class="kpi-val">{{ summary.by_source | length }} Active</div>
+        <div class="kpi-meta">
+          YouTube · LinkedIn · Facebook · GNews · RSS
+        </div>
+      </div>
+    </div>
+
+    <!-- Hero Sentiment & Timeline Strip -->
+    {% set tot = (pos + neu + neg) or 1 %}
+    {% set net_pct = ((net + 1) / 2 * 100) | round(1) %}
+    <section class="hero anim" style="--d:1; margin-bottom: 24px;">
+      <div class="hero-left">
+        <div class="eyebrow">{{ 'project rollup' if project and not query else ('topic listening' if query else 'global audience pulse') }}</div>
+        <h1 class="subject" title="{{ project.name if project and not query else (query or 'Tata STRIVE & India Skilling') }}">{{ project.name if project and not query else (query or 'Tata STRIVE & India Skilling') }}</h1>
+        <div class="headline">
+          <span class="big-num">{{ summary.total }}</span>
+          <span class="big-label">mention{{ '' if summary.total == 1 else 's' }}<br>{% if project and not query %}across {{ project.query_count }} keyword{{ '' if project.query_count == 1 else 's' }}{% else %}tracked{% endif %}</span>
+        </div>
+
+        <div class="net">
+          <div class="net-row">
+            <span class="net-label">net sentiment index</span>
+            <span class="net-val {{ 'up' if net > 0.05 else ('down' if net < -0.05 else 'flat') }}">
+              {{ '+' if net > 0 else '' }}{{ (net * 100) | round(0) | int }}%
+            </span>
+          </div>
+          <div class="meter" role="img" aria-label="Sentiment: {{ pos }} positive, {{ neu }} neutral, {{ neg }} negative">
+            <span class="meter-seg pos" style="width: {{ (100 * pos / tot) | round(2) }}%"></span>
+            <span class="meter-seg neu" style="width: {{ (100 * neu / tot) | round(2) }}%"></span>
+            <span class="meter-seg neg" style="width: {{ (100 * neg / tot) | round(2) }}%"></span>
+            <span class="meter-needle" style="left: {{ net_pct }}%"></span>
+          </div>
+          <div class="meter-legend">
+            <span><i class="dot pos"></i>{{ pos }} positive</span>
+            <span><i class="dot neu"></i>{{ neu }} neutral</span>
+            <span><i class="dot neg"></i>{{ neg }} negative</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-right">
+        <div class="chart-head">
+          <span class="eyebrow">volume &amp; sentiment timeline</span>
+          <span class="chart-range" id="chart-range-label">{{ chart_range }}{% if chart_cadence %} · {{ chart_cadence }}{% endif %}</span>
+        </div>
+
+        <!-- Hover Trace Top Stat Readout matching EvilHoverTraceBarChart -->
+        <div class="hover-trace-header">
+          <div class="hover-trace-value-box">
+            <span class="hover-trace-metric-tag font-mono">[mentions] Value</span>
+            <div class="hover-trace-counter font-mono" id="chart-trace-counter">{{ summary.total }}</div>
+            <span class="hover-trace-sub" id="chart-trace-breakdown">{{ pos }} pos · {{ neu }} neu · {{ neg }} neg</span>
+          </div>
+
+          <div class="hover-trace-period-box">
+            <div class="chart-timeline-toggle" role="group" aria-label="Timeline range">
+              <button type="button" class="trace-toggle-btn active" id="btn-chart-all" data-range="all">All History</button>
+              <button type="button" class="trace-toggle-btn" id="btn-chart-7d" data-range="7d">7 Dates</button>
+            </div>
+            <span class="hover-trace-period-tag font-mono">[period]</span>
+            <span class="hover-trace-period-val font-mono" id="chart-trace-period">{{ chart_range }}</span>
+          </div>
+        </div>
+
+        <!-- All-History Timeline Chart (Active by default) -->
+        <div class="chart hover-trace-chart" id="chart-view-all" role="img" aria-label="{{ chart_aria }}">
+          <div class="chart-trace-line" id="chart-trace-line-all">
+            <span class="chart-trace-badge font-mono" id="chart-trace-badge-all">0</span>
+            <span class="chart-trace-dot"></span>
+          </div>
+          <div class="bars" id="bars-all">
+            {% for d in chart_series %}
+            {% set h = (100 * d.total / (max_day or 1)) | round(2) %}
+            <div class="col" data-total="{{ d.total }}" data-pos="{{ d.positive }}" data-neu="{{ d.neutral }}" data-neg="{{ d.negative }}" data-label="{{ d.period_label }}" data-height="{{ h }}" title="{{ d.period_label }} — {{ d.total }} records ({{ d.positive }} pos / {{ d.neutral }} neu / {{ d.negative }} neg)">
+              <div class="stack{{ ' zero' if d.total == 0 else '' }}" style="height: {{ h }}%; --d: {{ loop.index0 }}">
+                <span class="seg neg" style="flex: {{ d.negative }}"></span>
+                <span class="seg neu" style="flex: {{ d.neutral }}"></span>
+                <span class="seg pos" style="flex: {{ d.positive }}"></span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="xaxis" aria-hidden="true">
+            {% for d in chart_series %}
+            <span class="{{ 'tick' if d.show_tick else '' }}{{ ' first' if d.first_tick else '' }}{{ ' last' if d.last_tick else '' }}">{% if d.show_tick %}<b>{{ d.tick_label }}</b>{% endif %}</span>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- 7-Day Timeline Chart (Toggleable) -->
+        <div class="chart hover-trace-chart" id="chart-view-7d" style="display: none;" role="img" aria-label="7-Day Daily Mention Volume">
+          <div class="chart-trace-line" id="chart-trace-line-7d">
+            <span class="chart-trace-badge font-mono" id="chart-trace-badge-7d">0</span>
+            <span class="chart-trace-dot"></span>
+          </div>
+          <div class="bars" id="bars-7d">
+            {% for d in chart_series_7d %}
+            {% set h = (100 * d.total / (max_day_7d or 1)) | round(2) %}
+            <div class="col-7d" data-total="{{ d.total }}" data-pos="{{ d.positive }}" data-neu="{{ d.neutral }}" data-neg="{{ d.negative }}" data-label="{{ d.period_label }}" data-height="{{ h }}" title="{{ d.period_label }} — {{ d.total }} records ({{ d.positive }} pos / {{ d.neutral }} neu / {{ d.negative }} neg)">
+              <div class="stack{{ ' zero' if d.total == 0 else '' }}" style="height: {{ h }}%; --d: {{ loop.index0 }}">
+                <span class="seg neg" style="flex: {{ d.negative }}"></span>
+                <span class="seg neu" style="flex: {{ d.neutral }}"></span>
+                <span class="seg pos" style="flex: {{ d.positive }}"></span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="xaxis-7d" aria-hidden="true">
+            {% for d in chart_series_7d %}
+            <span class="{{ 'tick' if d.show_tick else '' }}{{ ' first' if d.first_tick else '' }}{{ ' last' if d.last_tick else '' }}">{% if d.show_tick %}<b>{{ d.tick_label }}</b>{% endif %}</span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Source Breakdown and Themes Strip -->
+    <section class="strip anim" style="--d:2; margin-bottom: 24px;">
+      <div class="cell">
+        <span class="cell-k">sources</span>
+        <div class="cell-sources">
+          {% for src, n in summary.by_source.items() %}
+          {% set sm = source_meta.get(src, {'glyph':'•','color':'#8b93a1','label':src}) %}
+          <span class="srcpill"><i class="srcbadge" style="--c: {{ sm.color }}">{{ sm.glyph }}</i>{{ sm.label }}<b>{{ n }}</b></span>
+          {% else %}<span class="cell-v">—</span>{% endfor %}
+        </div>
+      </div>
+      <div class="cell">
+        <span class="cell-k">most discussed</span>
+        <span class="cell-v">{{ top_theme or '—' }}</span>
+      </div>
+      <div class="cell">
+        <span class="cell-k">active days</span>
+        <span class="cell-v mono">{{ timeseries | length }}</span>
+      </div>
+    </section>
+
+    <!-- Emerging Topics Summary Pills -->
+    <section class="panel anim" style="--d:3; margin-bottom: 24px;">
+      <div class="panel-head">
+        <span class="eyebrow">emerging audience topics &amp; growth velocity</span>
+      </div>
+      <div style="padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 12px;">
+        {% for t in topic_trends[:6] %}
+        <div style="background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 10px;">
+          <span class="velocity-pill {{ t.label }}">{{ t.label }}</span>
+          <strong style="font-size: 13.5px; color: var(--ink);">{{ t.topic }}</strong>
+          <span style="font-family: var(--mono); font-size: 11px; color: var(--faint);">{{ t.total_records }} records</span>
+        </div>
+        {% else %}
+        <span style="color: var(--faint); font-size: 13px;">No emerging trends computed yet. Run an ingestion scan.</span>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <!-- =========================================================================
+       TAB 2: NEWS INTELLIGENCE (Google News RSS & GNews API)
+       ========================================================================= -->
+  <div class="tab-panel" id="pane-news">
+    <div class="news-header-strip anim" style="--d:0">
+      <div>
+        <span class="eyebrow" style="color: var(--caramel-roast);">google news rss &amp; verified news coverage</span>
+        <h2 style="margin: 4px 0 0; font-size: 18px; color: #ffffff;">Editorial &amp; Institutional Intelligence</h2>
+      </div>
+
+      <div class="news-filters">
+        <input type="search" id="news-search" class="news-search-input" placeholder="Search news articles, publishers, keywords…">
+        <select id="news-source-filter" class="news-search-input" style="min-width: 140px;">
+          <option value="">All News Sources</option>
+          <option value="rss">Google News RSS (Free)</option>
+          <option value="gnews">GNews API</option>
+        </select>
+        <span class="mono" style="font-size: 12px; color: var(--dim);" id="news-filter-status">
+          Showing {{ news_articles | length }} article{{ '' if news_articles | length == 1 else 's' }}
+        </span>
+      </div>
+    </div>
+
+    <div class="news-grid anim" id="news-grid" style="--d:1">
+      {% for m in news_articles %}
+      <div class="news-card tilt-card" data-title="{{ m.title | lower }}" data-snippet="{{ m.text | lower }}" data-source="{{ m.source }}" data-author="{{ (m.author or '') | lower }}">
+        <div class="tilt-glare" aria-hidden="true"></div>
+        <div>
+          <div class="news-meta-top">
+            <span class="news-source-tag">📰 {{ m.source_label }}</span>
+            <span class="mono" style="color: var(--faint);">{{ m.reltime }}</span>
+          </div>
+
+          {% if m.category %}
+          <div style="margin-bottom: 8px;">
+            <span class="tag theme" style="font-size: 10px;">{{ m.category }}</span>
+          </div>
+          {% endif %}
+
+          <h3 class="news-card-title">{{ m.title or 'Untitled Article' }}</h3>
+          <div class="news-card-snippet">{{ m.text[:220] }}{% if m.text | length > 220 %}…{% endif %}</div>
+        </div>
+
+        <div class="news-card-footer">
+          <span class="news-author-tag">{{ m.author or 'Verified Media' }}</span>
+          {% if m.url %}
+          <a href="{{ m.url }}" target="_blank" rel="noopener noreferrer" class="btn-open-article">
+            Read Source ↗
+          </a>
+          {% endif %}
+        </div>
+      </div>
+      {% else %}
+      <div class="feed-empty" style="grid-column: 1 / -1;">
+        No news articles collected yet. Click <strong>Refresh Live Data</strong> to fetch from Google News RSS.
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       TAB 3: CONVERSATION EXPLORER
+       ========================================================================= -->
+  <div class="tab-panel" id="pane-explorer">
+    <section class="panel feed-panel anim" style="--d:0">
+      <div class="panel-head feed-head">
+        <div>
+          <span class="eyebrow">conversation explorer</span>
+          <h2 style="margin: 4px 0 0; font-size: 18px; color: #ffffff;">Universal Discourse Stream</h2>
+        </div>
+
+        <div class="filters" id="filters" data-query="{{ query or '' }}" data-project-id="{{ project_scope or '' }}" role="group" aria-label="Filter mentions">
+          <input type="search" id="mention-search" class="news-search-input" placeholder="Search conversations, creators, comments…" style="margin-right: 6px;">
+          
+          <button type="button" class="chip active" data-filter="sentiment" data-value="" aria-pressed="true">all</button>
+          <button type="button" class="chip f-pos" data-filter="sentiment" data-value="positive" aria-pressed="false">positive</button>
+          <button type="button" class="chip f-neu" data-filter="sentiment" data-value="neutral" aria-pressed="false">neutral</button>
+          <button type="button" class="chip f-neg" data-filter="sentiment" data-value="negative" aria-pressed="false">negative</button>
+          
+          {% if summary.by_source %}
+          <span class="filters-div"></span>
+          
+          <button type="button" class="chip active" data-filter="record_type" data-value="" aria-pressed="true">all types</button>
+          <button type="button" class="chip" data-filter="record_type" data-value="post" aria-pressed="false">posts</button>
+          <button type="button" class="chip" data-filter="record_type" data-value="video" aria-pressed="false">videos</button>
+          <button type="button" class="chip" data-filter="record_type" data-value="comment" aria-pressed="false">comments</button>
+          <button type="button" class="chip" data-filter="record_type" data-value="article" aria-pressed="false">articles</button>
+
+          <span class="filters-div"></span>
+
+          {% for src in summary.by_source.keys() %}
+          {% set sm = source_meta.get(src, {'label':src}) %}
+          <button type="button" class="chip" data-filter="source" data-value="{{ src }}" aria-pressed="false">{{ sm.label }}</button>
+          {% endfor %}
+          {% endif %}
+        </div>
+
+        <span class="feed-status mono" id="feed-status" aria-live="polite">Showing {{ mentions | length }} mention{{ '' if mentions | length == 1 else 's' }}.</span>
+      </div>
+
+      <ul class="feed" id="feed">
+        {% if not mentions %}
+        <li class="feed-empty">No records found. Click "Refresh Live Data" above to fetch latest mentions.</li>
+        {% endif %}
+        {% for m in mentions %}
+        {% set color_class = 'green' if m.sentiment == 'positive' else ('red' if m.sentiment == 'negative' else ('orange' if m.source == 'youtube' else 'blue')) %}
+        {% set conf_pct = ((m.confidence or 0.88) * 100) | round(0) | int %}
+        <li class="mention card {{ color_class }} {{ m.sentiment }}" data-record-type="{{ m.record_type }}" data-source="{{ m.source }}" data-sentiment="{{ m.sentiment }}">
+          <!-- Card Header (Date & Ellipsis Menu) -->
+          <div class="card-header">
+            <div class="date">
+              <span class="m-src"><i class="srcbadge" style="--c: {{ m.source_color }}">{{ m.source_glyph }}</i>{{ m.source_label }}</span>
+              <span class="mono">{{ m.reltime }}</span>
+              {% if m.category %}
+              <span class="tag theme">{{ m.category }}</span>
+              {% endif %}
+            </div>
+            <button type="button" class="btn-ellipsis" title="More options" aria-label="More options">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path fill-rule="evenodd" d="M10.5 6a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm0 6a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm0 6a1.5 1.5 0 1 1 3 0 1.5 1.5 0" clip-rule="evenodd" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Card Body (Title, Description & Progress Bar) -->
+          <div class="card-body">
+            <h3>{% if m.title %}{{ m.title }}{% else %}{{ m.author or 'Tata STRIVE Conversation' }}{% endif %}</h3>
+            <p>{% if m.text %}{{ m.text }}{% else %}{{ m.title }}{% endif %}</p>
+            <div class="progress">
+              <span>Sentiment · {{ m.sentiment | upper }}</span>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: {{ conf_pct }}%"></div>
+              </div>
+              <span>{{ conf_pct }}% Conf</span>
+            </div>
+          </div>
+
+          <!-- Card Footer (Avatar Stack + Add Button + Countdown Pill) -->
+          <div class="card-footer">
+            <ul>
+              {% if m.author %}
+              <li>
+                <span class="c-avatar-img" title="{{ m.author }}">{{ m.author[:2] | upper }}</span>
+              </li>
+              {% endif %}
+              <li>
+                <span class="c-avatar-img c-src-avatar" title="{{ m.source_label }}">{{ m.source_glyph }}</span>
+              </li>
+              <li>
+                {% if m.url %}
+                <a href="{{ m.url }}" class="btn-add" title="View Source" target="_blank" rel="noopener noreferrer">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path fill-rule="evenodd" d="M12 3.75a.75.75 0 0 1 .75.75v6.75h6.75a.75.75 0 0 1 0 1.5h-6.75v6.75a.75.75 0 0 1-1.5 0v-6.75H4.5a.75.75 0 0 1 0-1.5h6.75V4.5a.75.75 0 0 1 .75-.75Z" clip-rule="evenodd" />
+                  </svg>
+                </a>
+                {% else %}
+                <span class="btn-add" title="Source">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path fill-rule="evenodd" d="M12 3.75a.75.75 0 0 1 .75.75v6.75h6.75a.75.75 0 0 1 0 1.5h-6.75v6.75a.75.75 0 0 1-1.5 0v-6.75H4.5a.75.75 0 0 1 0-1.5h6.75V4.5a.75.75 0 0 1 .75-.75Z" clip-rule="evenodd" />
+                  </svg>
+                </span>
+                {% endif %}
+              </li>
+            </ul>
+            {% if m.url %}
+            <a href="{{ m.url }}" class="btn-countdown" target="_blank" rel="noopener noreferrer">
+              {% if m.comments_count is not none and m.comments_count > 0 %}
+                💬 {{ m.comments_count }} comments
+              {% elif m.views is not none %}
+                👁 {{ m.views }} views
+              {% else %}
+                {{ m.record_type | upper }}
+              {% endif %}
+            </a>
+            {% else %}
+            <span class="btn-countdown">
+              {% if m.comments_count is not none and m.comments_count > 0 %}
+                💬 {{ m.comments_count }} comments
+              {% elif m.views is not none %}
+                👁 {{ m.views }} views
+              {% else %}
+                {{ m.record_type | upper }}
+              {% endif %}
+            </span>
+            {% endif %}
+          </div>
+
+          <!-- Comment & Sentiment Analyser (Posts, Videos & Comments) -->
+          <div class="comment-analyser-box">
+            <div class="analyser-header">
+              <div class="analyser-title-group">
+                <span class="analyser-icon">⚡</span>
+                <span class="analyser-label">COMMENT &amp; SENTIMENT ANALYSER</span>
+                <span class="analyser-ai-badge">AI Verified</span>
+              </div>
+              <div class="analyser-metrics-group">
+                <span class="sentiment-pill {{ m.sentiment }}">{{ m.sentiment | upper }}</span>
+                <span class="confidence-pill" title="AI Model Evaluation Confidence">
+                  <span class="conf-dot"></span>
+                  Confidence: <strong>{{ ((m.confidence or 0.88) * 100) | round(0) | int }}%</strong>
+                </span>
+              </div>
+            </div>
+
+            {% if m.comments_count is not none and m.comments_count > 0 %}
+            <div class="comment-breakdown-row">
+              <div class="breakdown-labels">
+                <span class="b-pos">🟢 Positive: <strong>{{ m.comment_pos_pct }}%</strong></span>
+                <span class="b-neu">⚪ Neutral: <strong>{{ m.comment_neu_pct }}%</strong></span>
+                <span class="b-neg">🔴 Negative: <strong>{{ m.comment_neg_pct }}%</strong></span>
+                <span class="b-total mono">💬 {{ m.comments_count }} comments analysed</span>
+              </div>
+              <div class="breakdown-bar" role="progressbar" aria-label="Comment sentiment distribution">
+                <div class="bar-seg pos" style="width: {{ m.comment_pos_pct }}%" title="Positive: {{ m.comment_pos_pct }}%"></div>
+                <div class="bar-seg neu" style="width: {{ m.comment_neu_pct }}%" title="Neutral: {{ m.comment_neu_pct }}%"></div>
+                <div class="bar-seg neg" style="width: {{ m.comment_neg_pct }}%" title="Negative: {{ m.comment_neg_pct }}%"></div>
+              </div>
+            </div>
+            {% endif %}
+
+            {% if m.sentiment_reason %}
+            <div class="analyser-rationale">
+              <span class="rationale-lead">Analysis:</span> {{ m.sentiment_reason }}
+            </div>
+            {% endif %}
+
+            {% if m.analyzed_comments %}
+            <!-- Interactive Analyzed Comments Drawer -->
+            <details class="comments-accordion">
+              <summary class="comments-toggle-btn">
+                <span class="toggle-icon">💬</span>
+                <span class="toggle-text">Read Analyzed Comments (<strong>{{ m.analyzed_comments | length }}</strong> available)</span>
+                <span class="toggle-arrow">▼</span>
+              </summary>
+
+              <div class="comments-content">
+                <div class="comments-filter-bar">
+                  <span class="cf-label">Filter:</span>
+                  <button type="button" class="c-chip active" data-comment-filter="all">All ({{ m.analyzed_comments | length }})</button>
+                  {% if m.comment_counts.positive > 0 %}
+                  <button type="button" class="c-chip f-pos" data-comment-filter="positive">🟢 Positive ({{ m.comment_counts.positive }})</button>
+                  {% endif %}
+                  {% if m.comment_counts.neutral > 0 %}
+                  <button type="button" class="c-chip f-neu" data-comment-filter="neutral">⚪ Neutral ({{ m.comment_counts.neutral }})</button>
+                  {% endif %}
+                  {% if m.comment_counts.negative > 0 %}
+                  <button type="button" class="c-chip f-neg" data-comment-filter="negative">🔴 Negative ({{ m.comment_counts.negative }})</button>
+                  {% endif %}
+                </div>
+
+                <ul class="comments-list">
+                  {% for c in m.analyzed_comments %}
+                  <li class="comment-item {{ c.sentiment }}" data-comment-sentiment="{{ c.sentiment }}">
+                    <div class="c-head">
+                      <div class="c-author-group">
+                        <span class="c-avatar">{{ c.author[:2] | upper }}</span>
+                        <strong class="c-author">{{ c.author }}</strong>
+                        <span class="c-time mono">{{ c.reltime }}</span>
+                      </div>
+                      <div class="c-badges">
+                        <span class="sentiment-pill {{ c.sentiment }}">{{ c.sentiment | upper }}</span>
+                        <span class="confidence-pill" title="AI Model Evaluation Confidence">
+                          <span class="conf-dot"></span>
+                          {{ c.confidence_pct }}% Conf
+                        </span>
+                      </div>
+                    </div>
+                    <div class="c-text">{{ c.text }}</div>
+                    {% if c.sentiment_reason %}
+                    <div class="c-rationale">
+                      <span class="c-rationale-tag">Evidence:</span> {{ c.sentiment_reason }}
+                    </div>
+                    {% endif %}
+                  </li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </details>
+            {% endif %}
+          </div>
+
+          {% if m.url %}
+          <div style="margin-top: 8px; display: flex; justify-content: flex-end;">
+            <a class="m-link" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">view original on {{ m.source_label }} ↗</a>
+          </div>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+
+  <!-- =========================================================================
+       TAB 4: SOURCES & SETTINGS
+       ========================================================================= -->
+  <div class="tab-panel" id="pane-sources">
+    <div style="margin-bottom: 20px;">
+      <span class="eyebrow" style="color: var(--caramel-roast);">connector matrix &amp; data provenance</span>
+      <h2 style="margin: 4px 0 0; font-size: 20px; color: #ffffff;">Modular Data Sources Architecture</h2>
+      <p style="margin: 4px 0 0; font-size: 13.5px; color: var(--dim);">
+        Each source connector operates independently. API keys are safely managed backend-side without frontend exposure.
+      </p>
+    </div>
+
+    <table class="connectors-table anim" style="--d:0; margin-bottom: 28px;">
+      <thead>
+        <tr>
+          <th>Connector</th>
+          <th>Type</th>
+          <th>Configuration State</th>
+          <th>Health Status</th>
+          <th>Access Mechanism</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>YouTube Data API v3</strong></td>
+          <td>Video &amp; Public Comments</td>
+          <td><span class="connector-state-tag connected">Connected</span></td>
+          <td>Active · Live Quota Managed</td>
+          <td>Configured Backend Key (YOUTUBE_API_KEY)</td>
+        </tr>
+        <tr>
+          <td><strong>Google News RSS</strong></td>
+          <td>News / RSS Articles</td>
+          <td><span class="connector-state-tag connected">Connected</span></td>
+          <td>Active · 5 Indian Skilling Feeds</td>
+          <td>Free Public RSS (No Key Required)</td>
+        </tr>
+        <tr>
+          <td><strong>GNews API</strong></td>
+          <td>Digital News Media</td>
+          <td><span class="connector-state-tag connected">Connected</span></td>
+          <td>Active · Query Filtered</td>
+          <td>Backend API Key (GNEWS_API_KEY)</td>
+        </tr>
+        <tr>
+          <td><strong>Bluesky Public XRPC</strong></td>
+          <td>Public Social Posts</td>
+          <td><span class="connector-state-tag connected">Ready</span></td>
+          <td>Standby</td>
+          <td>Unauthenticated Public Read Endpoint</td>
+        </tr>
+        <tr>
+          <td><strong>Hacker News Algolia</strong></td>
+          <td>Tech &amp; Career Discussions</td>
+          <td><span class="connector-state-tag connected">Ready</span></td>
+          <td>Standby</td>
+          <td>Free Public Algolia Search API</td>
+        </tr>
+        <tr>
+          <td><strong>Instagram (Instaloader)</strong></td>
+          <td>Public Posts &amp; Captions</td>
+          <td><span class="connector-state-tag experimental">Experimental</span></td>
+          <td>User-Initiated Only</td>
+          <td>Local Session Mechanism (No Hardcoded Passwords)</td>
+        </tr>
+        <tr>
+          <td><strong>LinkedIn Public &amp; Company Feeds</strong></td>
+          <td>Corporate Posts &amp; Careers</td>
+          <td><span class="connector-state-tag connected">Connected</span></td>
+          <td>Active · Official &amp; Alumni Updates</td>
+          <td>Configured Ingestion Stream</td>
+        </tr>
+        <tr>
+          <td><strong>Facebook Public Page Stream</strong></td>
+          <td>Community Posts &amp; Admissions</td>
+          <td><span class="connector-state-tag connected">Connected</span></td>
+          <td>Active · State Centre Pages</td>
+          <td>Configured Ingestion Stream</td>
+        </tr>
+        <tr>
+          <td><strong>Reddit &amp; X / Twitter</strong></td>
+          <td>Enterprise Platforms</td>
+          <td><span class="connector-state-tag disabled">Standby</span></td>
+          <td>Ready for Enterprise OAuth</td>
+          <td>Authorised OAuth Credentials Required</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Monitored Feeds List -->
+    <div class="panel anim" style="--d:1; margin-bottom: 24px;">
+      <div class="panel-head">
+        <span class="eyebrow">monitored google news rss feeds</span>
+      </div>
+      <div style="padding: 18px 20px;">
+        <ul style="margin: 0; padding-left: 20px; font-size: 13.5px; color: #cbd5e1; line-height: 1.8;">
+          <li><strong>Tata STRIVE Brand:</strong> <code>https://news.google.com/rss/search?q=%22Tata+STRIVE%22&amp;hl=en-IN&amp;gl=IN&amp;ceid=IN:en</code></li>
+          <li><strong>Skill Development India:</strong> <code>https://news.google.com/rss/search?q=skill+development+India&amp;hl=en-IN&amp;gl=IN&amp;ceid=IN:en</code></li>
+          <li><strong>Youth Employment India:</strong> <code>https://news.google.com/rss/search?q=youth+employment+India&amp;hl=en-IN&amp;gl=IN&amp;ceid=IN:en</code></li>
+          <li><strong>Vocational Training India:</strong> <code>https://news.google.com/rss/search?q=vocational+training+India&amp;hl=en-IN&amp;gl=IN&amp;ceid=IN:en</code></li>
+          <li><strong>Ministry of Skill Development:</strong> <code>https://news.google.com/rss/search?q=%22Ministry+of+Skill+Development%22&amp;hl=en-IN&amp;gl=IN&amp;ceid=IN:en</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Keyword Scan & Project Rollup Panels -->
+    <div style="margin-top: 24px;">
+      {{ project_panel() }}
+      {{ scan_panel() }}
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <span class="f-mark">TS</span>
+  <span>Social Pulse AI for <b>Tata STRIVE</b> — Internal Intelligence &amp; Content-Planning Platform · All rights reserved.</span>
+</footer>
+
+<script src="/static/app.js?v={{ asset_version }}"></script>
+</body>
+</html>
