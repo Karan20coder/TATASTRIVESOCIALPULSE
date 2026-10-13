@@ -49,23 +49,6 @@ All 234 automated tests across connectors, classification, clustering, trends, d
 
 ---
 
-<div align="center">
-
-# ◟◞ Harken Core Engine
-
-Track a keyword, brand, or product across Hacker News, Reddit, Mastodon, Bluesky, Stack Overflow, RSS, X, and YouTube.
-Get sentiment and themes in a clean local dashboard. No Harken account, telemetry, or per-seat pricing — the database stays on your machine.
-
-[![CI](https://github.com/VladUZH/harken/actions/workflows/ci.yml/badge.svg)](https://github.com/VladUZH/harken/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-4ec9b0.svg)](https://www.python.org/)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-d8a657.svg)](#contributing)
-
-</div>
-
-<div align="center">
-<img src="docs/dashboard-hero.png" alt="Harken dashboard" width="820">
-</div>
 
 ---
 
